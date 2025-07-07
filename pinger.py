@@ -22,7 +22,7 @@ URLS = [
     "https://ego-c9gi.onrender.com/",
     "https://notepicbot.onrender.com",
     "https://render-test-ush9.onrender.com",
-    "https://render-test-ush9.onrender.com"
+    "https://pinger-xiz2.onrender.com"
 ]
 
 # Discord bot setup
