@@ -6,7 +6,7 @@ import discord
 import pytz
 import threading
 from flask import Flask
-from datetime import datetime
+from datetime import datetime, timedelta
 from discord.ext import commands, tasks
 from discord import app_commands
 from dotenv import load_dotenv
@@ -26,13 +26,17 @@ URLS = [
     "https://epicgiveawaybot.onrender.com"
 ]
 
-# Discord bot setup
-intents = discord.Intents.default()
-bot = commands.Bot(command_prefix="!", intents=intents)
-
 # Timezone and start time
 IST = pytz.timezone("Asia/Kolkata")
-START_TIME = datetime.now(IST).replace(hour=6, minute=0, second=0, microsecond=0)
+START_TIME = datetime.now(IST)  # Dynamic uptime start
+
+# Discord bot setup with proper intents
+intents = discord.Intents.default()
+intents.guilds = True
+intents.messages = True
+intents.message_content = True
+
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 # Flask app for uptime
 app = Flask(__name__)
@@ -46,10 +50,11 @@ def run_flask():
 
 def start_flask():
     thread = threading.Thread(target=run_flask)
+    thread.daemon = True
     thread.start()
 
 # Ping Render URLs every 2–5 minutes
-@tasks.loop(seconds=0)
+@tasks.loop(seconds=60)
 async def ping_render_urls():
     delay = random.randint(120, 300)
     await asyncio.sleep(delay)
@@ -64,7 +69,7 @@ async def ping_url(session, url):
     except Exception as e:
         print(f"[Ping Error] {url} - {e}")
 
-# Update uptime embed every 55 seconds
+# Update uptime embed every 10 seconds
 @tasks.loop(seconds=10)
 async def update_uptime_embed():
     channel = bot.get_channel(CHANNEL_ID)
@@ -80,6 +85,10 @@ async def update_uptime_embed():
 
     now = datetime.now(IST)
     uptime = now - START_TIME
+
+    if uptime.total_seconds() < 0:
+        uptime = timedelta(seconds=0)  # Fix negative value
+
     days = uptime.days
     hours, rem = divmod(uptime.seconds, 3600)
     minutes, seconds = divmod(rem, 60)
@@ -96,6 +105,8 @@ async def update_uptime_embed():
 
 # Admin OR "ROOT" / "MOD" role check
 def is_admin_or_mod(interaction: discord.Interaction):
+    if not interaction.guild or not interaction.user:
+        return False
     if interaction.user.guild_permissions.administrator:
         return True
     allowed_roles = ["ROOT", "MOD"]
@@ -108,16 +119,11 @@ def is_admin_or_mod(interaction: discord.Interaction):
     description="Send a dummy embed to a specified channel (admin or mod only)"
 )
 @app_commands.check(is_admin_or_mod)
-@app_commands.describe(channel_id="The ID of the channel to send the dummy embed")
-async def saym(interaction: discord.Interaction, channel_id: str):
+@app_commands.describe(channel="The channel to send the dummy embed")
+async def saym(interaction: discord.Interaction, channel: discord.TextChannel):
     await interaction.response.defer(ephemeral=True)
 
     try:
-        channel = bot.get_channel(int(channel_id))
-        if not channel:
-            await interaction.followup.send("❌ Invalid channel ID.")
-            return
-
         embed = discord.Embed(
             title="📦 Dummy Embed",
             description="This is a sample embed sent by the bot.",
@@ -126,7 +132,7 @@ async def saym(interaction: discord.Interaction, channel_id: str):
         embed.set_footer(text="Sent by /saym command")
 
         await channel.send(embed=embed)
-        await interaction.followup.send(f"✅ Embed sent to <#{channel_id}>.")
+        await interaction.followup.send(f"✅ Embed sent to {channel.mention}.")
     except Exception as e:
         await interaction.followup.send(f"⚠️ Failed to send embed: `{e}`")
 
@@ -140,9 +146,16 @@ async def saym_error(interaction: discord.Interaction, error):
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user}")
+    
+    # Set bot activity
+    activity = discord.Activity(type=discord.ActivityType.watching, name="A heart for bots, not humans... 100% synthetic love 💘⚙️")
+    await bot.change_presence(activity=activity)
+
     await bot.tree.sync()
+
     if not ping_render_urls.is_running():
         ping_render_urls.start()
+
     if not update_uptime_embed.is_running():
         update_uptime_embed.start()
 
