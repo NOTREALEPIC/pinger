@@ -1,4 +1,4 @@
-discord-py-no-voice
+discord.py
 aiohttp
 Flask
 python-dotenv
