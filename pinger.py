@@ -8,15 +8,16 @@ import threading
 from flask import Flask
 from datetime import datetime
 from discord.ext import commands, tasks
+from discord import app_commands
 from dotenv import load_dotenv
 
-# Load env variables
+# Load environment variables
 load_dotenv()
 TOKEN = os.getenv("TOKEN")
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 MESSAGE_ID = int(os.getenv("MESSAGE_ID"))
 
-# Hardcoded Render URLs to ping
+# Hardcoded Render URLs
 URLS = [
     "https://ego-c9gi.onrender.com/",
     "https://notepicbot.onrender.com",
@@ -27,12 +28,13 @@ URLS = [
 # Discord bot setup
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
+bot.tree = app_commands.CommandTree(bot)
 
 # Timezone and start time
 IST = pytz.timezone("Asia/Kolkata")
 START_TIME = datetime.now(IST).replace(hour=6, minute=0, second=0, microsecond=0)
 
-# Flask server to keep bot alive
+# Flask app for uptime
 app = Flask(__name__)
 
 @app.route('/')
@@ -46,7 +48,7 @@ def start_flask():
     thread = threading.Thread(target=run_flask)
     thread.start()
 
-# Ping Render URLs every 2–5 mins
+# Ping Render URLs every 2–5 minutes
 @tasks.loop(seconds=0)
 async def ping_render_urls():
     delay = random.randint(120, 300)
@@ -62,7 +64,7 @@ async def ping_url(session, url):
     except Exception as e:
         print(f"[Ping Error] {url} - {e}")
 
-# Update embed every 55 seconds
+# Update uptime embed every 55 seconds
 @tasks.loop(seconds=55)
 async def update_uptime_embed():
     channel = bot.get_channel(CHANNEL_ID)
@@ -92,14 +94,59 @@ async def update_uptime_embed():
 
     await message.edit(embed=embed)
 
+# Admin OR "ROOT" / "MOD" role check
+def is_admin_or_mod(interaction: discord.Interaction):
+    if interaction.user.guild_permissions.administrator:
+        return True
+    allowed_roles = ["ROOT", "MOD"]
+    user_roles = [role.name.upper() for role in interaction.user.roles]
+    return any(role in user_roles for role in allowed_roles)
+
+# /saym command - send a dummy embed to a channel
+@bot.tree.command(
+    name="saym",
+    description="Send a dummy embed to a specified channel (admin or mod only)",
+    default_permissions=discord.Permissions(administrator=True)
+)
+@app_commands.check(is_admin_or_mod)
+@app_commands.describe(channel_id="The ID of the channel to send the dummy embed")
+async def saym(interaction: discord.Interaction, channel_id: str):
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        channel = bot.get_channel(int(channel_id))
+        if not channel:
+            await interaction.followup.send("❌ Invalid channel ID.")
+            return
+
+        embed = discord.Embed(
+            title="📦 Dummy Embed",
+            description="This is a sample embed sent by the bot.",
+            color=discord.Color.purple()
+        )
+        embed.set_footer(text="Sent by /saym command")
+
+        await channel.send(embed=embed)
+        await interaction.followup.send(f"✅ Embed sent to <#{channel_id}>.")
+    except Exception as e:
+        await interaction.followup.send(f"⚠️ Failed to send embed: `{e}`")
+
+# Handle permission errors
+@saym.error
+async def saym_error(interaction: discord.Interaction, error):
+    if isinstance(error, app_commands.CheckFailure):
+        await interaction.response.send_message("❌ You don’t have permission to use this command.", ephemeral=True)
+
+# Bot ready event
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user}")
+    await bot.tree.sync()
     if not ping_render_urls.is_running():
         ping_render_urls.start()
     if not update_uptime_embed.is_running():
         update_uptime_embed.start()
 
-# Start everything
+# Start Flask and Discord bot
 start_flask()
 bot.run(TOKEN)
