@@ -11,7 +11,7 @@ from discord.ext import commands, tasks
 from discord import app_commands
 from dotenv import load_dotenv
 
-# Load environment variables
+# Load env variables
 load_dotenv()
 TOKEN = os.getenv("TOKEN")
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
@@ -104,8 +104,7 @@ def is_admin_or_mod(interaction: discord.Interaction):
 # /saym command - send a dummy embed to a channel
 @bot.tree.command(
     name="saym",
-    description="Send a dummy embed to a specified channel (admin or mod only)",
-    default_permissions=discord.Permissions(administrator=True)
+    description="Send a dummy embed to a specified channel (admin or mod only)"
 )
 @app_commands.check(is_admin_or_mod)
 @app_commands.describe(channel_id="The ID of the channel to send the dummy embed")
@@ -146,6 +145,6 @@ async def on_ready():
     if not update_uptime_embed.is_running():
         update_uptime_embed.start()
 
-# Start Flask and Discord bot
+# Start Flask and bot
 start_flask()
 bot.run(TOKEN)
