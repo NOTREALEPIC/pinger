@@ -64,7 +64,7 @@ async def ping_url(session, url):
         print(f"[Ping Error] {url} - {e}")
 
 # Update uptime embed every 55 seconds
-@tasks.loop(seconds=55)
+@tasks.loop(seconds=10)
 async def update_uptime_embed():
     channel = bot.get_channel(CHANNEL_ID)
     if not channel:
