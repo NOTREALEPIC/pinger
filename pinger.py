@@ -28,7 +28,6 @@ URLS = [
 
 # Timezone and start time
 IST = pytz.timezone("Asia/Kolkata")
-START_TIME = datetime.now(IST)  # Dynamic uptime start
 
 # Discord bot setup with proper intents
 intents = discord.Intents.default()
@@ -145,6 +144,9 @@ async def saym_error(interaction: discord.Interaction, error):
 # Bot ready event
 @bot.event
 async def on_ready():
+    global START_TIME
+    START_TIME = datetime.now(IST)
+    
     print(f"✅ Logged in as {bot.user}")
     
     # Set bot activity
