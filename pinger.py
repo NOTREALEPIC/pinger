@@ -56,77 +56,76 @@ bot_statuses = {name: "🔄 CHECKING..." for name in RENDER_BOTS}
 # Update embed every 10 seconds
 @tasks.loop(seconds=10)
 async def update_uptime_embed():
-    channel = bot.get_channel(CHANNEL_ID)
-    if not channel:
-        print("❌ Channel not found.")
-        return
-
     try:
-        message = await channel.fetch_message(MESSAGE_ID)
-    except discord.NotFound:
-        print("❌ Message not found.")
-        return
+        channel = bot.get_channel(CHANNEL_ID)
+        if not channel:
+            print("❌ Channel not found.")
+            return
 
-    now = datetime.now(IST)
-    uptime = now - START_TIME
-    if uptime.total_seconds() < 0:
-        uptime = timedelta(seconds=0)
+        try:
+            message = await channel.fetch_message(MESSAGE_ID)
+        except discord.NotFound:
+            print("❌ Message not found.")
+            return
 
-    # Format time
-    start_str = START_TIME.strftime("%I:%M:%S %p")
-    now_str = now.strftime("%I:%M:%S %p")
-    days = uptime.days
-    hours, rem = divmod(uptime.seconds, 3600)
-    minutes, seconds = divmod(rem, 60)
-    uptime_str = f"{days:02}:{hours:02}:{minutes:02}:{seconds:02}"
+        now = datetime.now(IST)
+        uptime = now - START_TIME
+        if uptime.total_seconds() < 0:
+            uptime = timedelta(seconds=0)
 
-    # Build status text
-    status_lines = []
-    for name, status in bot_statuses.items():
-        status_lines.append(f"{name.ljust(20)} ```{status}```")
+        start_str = START_TIME.strftime("%I:%M:%S %p")
+        now_str = now.strftime("%I:%M:%S %p")
+        days = uptime.days
+        hours, rem = divmod(uptime.seconds, 3600)
+        minutes, seconds = divmod(rem, 60)
+        uptime_str = f"{days:02}:{hours:02}:{minutes:02}:{seconds:02}"
 
-    status_block = "\n".join(status_lines)
+        status_lines = [f"{name.ljust(20)} ```{status}```" for name, status in bot_statuses.items()]
+        status_block = "\n".join(status_lines)
 
-    # Create embed
-    embed = discord.Embed(
-        title="🟢 UPTIME MONITOR",
-        color=discord.Color.green()
-    )
-    embed.description = (
-        f"START         ```{start_str}```\n"
-        f"UPTIME        ```{uptime_str}```\n"
-        f"LAST UPDATE   ```{now_str}```\n\n"
-        f"{status_block}"
-    )
-    await message.edit(embed=embed)
+        embed = discord.Embed(title="🟢 UPTIME MONITOR", color=discord.Color.green())
+        embed.description = (
+            f"START         ```{start_str}```\n"
+            f"UPTIME        ```{uptime_str}```\n"
+            f"LAST UPDATE   ```{now_str}```\n\n"
+            f"{status_block}"
+        )
+        await message.edit(embed=embed)
+
+    except Exception as e:
+        print(f"❌ update_uptime_embed crashed: {e}")
 
 # Ping every URL & update status
 @tasks.loop(seconds=60)
 async def ping_render_urls():
-    async with aiohttp.ClientSession() as session:
-        for name, url in RENDER_BOTS.items():
-            try:
-                async with session.get(url, timeout=5) as response:
-                    if response.status == 200:
-                        bot_statuses[name] = "ONLINE"
-                    else:
-                        bot_statuses[name] = "OFFLINE"
-            except Exception:
-                bot_statuses[name] = "OFFLINE"
+    try:
+        async with aiohttp.ClientSession() as session:
+            for name, url in RENDER_BOTS.items():
+                try:
+                    async with session.get(url, timeout=5) as response:
+                        if response.status == 200:
+                            bot_statuses[name] = "ONLINE"
+                        else:
+                            bot_statuses[name] = "OFFLINE"
+                except Exception:
+                    bot_statuses[name] = "OFFLINE"
+    except Exception as e:
+        print(f"❌ ping_render_urls crashed: {e}")
+
+# Watchdog to auto-restart tasks
+@tasks.loop(minutes=1)
+async def watchdog():
+    if not update_uptime_embed.is_running():
+        print("🔁 Restarting update_uptime_embed")
+        update_uptime_embed.start()
+
+    if not ping_render_urls.is_running():
+        print("🔁 Restarting ping_render_urls")
+        ping_render_urls.start()
 
 # Permission check
-def is_admin_or_mod(interaction: discord.Interaction):
-    if not interaction.guild or not interaction.user:
-        return False
-    if interaction.user.guild_permissions.administrator:
-        return True
-    allowed_roles = ["ROOT", "MOD"]
-    user_roles = [role.name.upper() for role in interaction.user.roles]
-    return any(role in user_roles for role in allowed_roles)
-
-# /saym command
+@app_commands.checks.has_any_role("ROOT", "MOD")
 @bot.tree.command(name="saym", description="Send a dummy embed to a specified channel")
-@app_commands.check(is_admin_or_mod)
 @app_commands.describe(channel="The channel to send the dummy embed")
 async def saym(interaction: discord.Interaction, channel: discord.TextChannel):
     await interaction.response.defer(ephemeral=True)
@@ -165,6 +164,8 @@ async def on_ready():
         ping_render_urls.start()
     if not update_uptime_embed.is_running():
         update_uptime_embed.start()
+    if not watchdog.is_running():
+        watchdog.start()
 
 # Start Flask and bot
 start_flask()
