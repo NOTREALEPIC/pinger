@@ -19,7 +19,10 @@ MESSAGE_ID = int(os.getenv("MESSAGE_ID"))
 
 # Timezone
 IST = pytz.timezone("Asia/Kolkata")
-START_TIME = None  # Set inside on_ready
+START_TIME = None
+
+# Lock to prevent race conditions
+embed_lock = asyncio.Lock()
 
 # Discord bot setup
 intents = discord.Intents.default()
@@ -56,67 +59,70 @@ bot_statuses = {name: "🔄 CHECKING..." for name in RENDER_BOTS}
 # Update embed every 10 seconds
 @tasks.loop(seconds=10)
 async def update_uptime_embed():
-    channel = bot.get_channel(CHANNEL_ID)
-    if not channel:
-        print("❌ Channel not found.")
-        return
+    async with embed_lock:
+        channel = bot.get_channel(CHANNEL_ID)
+        if not channel:
+            print("❌ Channel not found.")
+            return
 
-    try:
-        message = await channel.fetch_message(MESSAGE_ID)
-    except discord.NotFound:
-        print("❌ Message not found.")
-        return
+        try:
+            message = await channel.fetch_message(MESSAGE_ID)
+        except discord.NotFound:
+            print("❌ Message not found.")
+            return
 
-    now = datetime.now(IST)
-    uptime = now - START_TIME
-    if uptime.total_seconds() < 0:
-        uptime = timedelta(seconds=0)
+        now = datetime.now(IST)
+        uptime = now - START_TIME if START_TIME else timedelta(0)
+        if uptime.total_seconds() < 0:
+            uptime = timedelta(seconds=0)
 
-    # Format time
-    start_str = START_TIME.strftime("%I:%M:%S %p")
-    now_str = now.strftime("%I:%M:%S %p")
-    days = uptime.days
-    hours, rem = divmod(uptime.seconds, 3600)
-    minutes, seconds = divmod(rem, 60)
-    uptime_str = f"{days:02}:{hours:02}:{minutes:02}:{seconds:02}"
+        # Format time
+        start_str = START_TIME.strftime("%I:%M:%S %p")
+        now_str = now.strftime("%I:%M:%S %p")
+        days = uptime.days
+        hours, rem = divmod(uptime.seconds, 3600)
+        minutes, seconds = divmod(rem, 60)
+        uptime_str = f"{days:02}:{hours:02}:{minutes:02}:{seconds:02}"
 
-    # Build status text
-    status_lines = []
-    for name, status in bot_statuses.items():
-        status_lines.append(f"{name.ljust(20)} ```{status}```")
+        # Build status text
+        status_lines = []
+        for name, status in bot_statuses.items():
+            status_lines.append(f"{name.ljust(20)} ```{status}```")
+        status_block = "\n".join(status_lines)
 
-    status_block = "\n".join(status_lines)
+        # Create embed
+        embed = discord.Embed(
+            title="<a:GTALoading:1160144515621986325> UPTIME MONITOR",
+            color=discord.Color.green()
+        )
+        embed.description = (
+            f"START         ```{start_str}```\n"
+            f"UPTIME        ```{uptime_str}```\n"
+            f"LAST UPDATE   ```{now_str}```\n\n"
+            f"{status_block}"
+        )
+        embed.set_footer(
+            text="Updating every 10 sec",
+            icon_url="https://cdn.discordapp.com/emojis/1160144515621986325.gif"
+        )
 
-    # Create embed
-    embed = discord.Embed(
-        title="🟢 UPTIME MONITOR",
-        color=discord.Color.green()
-    )
-    embed.description = (
-        f"START         ```{start_str}```\n"
-        f"UPTIME        ```{uptime_str}```\n"
-        f"LAST UPDATE   ```{now_str}```\n\n"
-        f"{status_block}"
-    )
-    embed.set_footer(
-    text="Updating every 10 sec",
-    icon_url="https://cdn.discordapp.com/emojis/1160144515621986325.gif"
-    )
-    await message.edit(embed=embed)
+        await message.edit(embed=embed)
+        print(f"✅ Embed updated at {now_str}")
 
 # Ping every URL & update status
 @tasks.loop(seconds=60)
 async def ping_render_urls():
-    async with aiohttp.ClientSession() as session:
-        for name, url in RENDER_BOTS.items():
-            try:
-                async with session.get(url, timeout=5) as response:
-                    if response.status == 200:
-                        bot_statuses[name] = "ONLINE"
-                    else:
-                        bot_statuses[name] = "OFFLINE"
-            except Exception:
-                bot_statuses[name] = "OFFLINE"
+    async with embed_lock:
+        async with aiohttp.ClientSession() as session:
+            for name, url in RENDER_BOTS.items():
+                try:
+                    async with session.get(url, timeout=5) as response:
+                        if response.status == 200:
+                            bot_statuses[name] = "ONLINE"
+                        else:
+                            bot_statuses[name] = "OFFLINE"
+                except Exception:
+                    bot_statuses[name] = "OFFLINE"
 
 # Permission check
 def is_admin_or_mod(interaction: discord.Interaction):
@@ -157,8 +163,8 @@ async def saym_error(interaction: discord.Interaction, error):
 async def on_ready():
     global START_TIME
     START_TIME = datetime.now(IST)
+    print(f"✅ Logged in as {bot.user} at {START_TIME.strftime('%I:%M:%S %p')}")
 
-    print(f"✅ Logged in as {bot.user}")
     await bot.change_presence(activity=discord.Activity(
         type=discord.ActivityType.watching,
         name="A heart for bots, not humans... 100% synthetic love 💘⚙️"
