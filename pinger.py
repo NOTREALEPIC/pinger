@@ -98,6 +98,10 @@ async def update_uptime_embed():
         f"LAST UPDATE   ```{now_str}```\n\n"
         f"{status_block}"
     )
+    embed.set_footer(
+    text="Updating every 10 sec",
+    icon_url="https://cdn.discordapp.com/emojis/1160144515621986325.gif"
+    )
     await message.edit(embed=embed)
 
 # Ping every URL & update status
